@@ -565,7 +565,7 @@
   </div>
   <div class="contact-row">
     <a href="#tempahan" class="btn-primary">Tempah Slot</a>
-    <a href="https://wa.me/60134657353" class="btn-ghost" target="_blank">WhatsApp Kami</a>
+    <a href="https://wa.me/60000000000" class="btn-ghost" target="_blank">WhatsApp Kami</a>
   </div>
 </section>
 
@@ -634,7 +634,7 @@ const ADMIN_WHATSAPP = '60134657353'; // TUKAR ke nombor WhatsApp admin (format 
 // TAMPAL URL Google Apps Script Web App anda di sini selepas deploy (lihat panduan yang diberikan).
 // Bila diisi, tempahan akan disimpan terus ke Google Sheet + emel admin automatik.
 // Kalau dibiar kosong, sistem guna storan pratonton Claude sahaja (untuk ujian dalam Claude).
-const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxcHDIZWU4MtmIvBDmy8FlZ9hV0oNJcjHWUVriFKl9FXVZzLfzySh_d3hbbWcHpg32D/exec'; // contoh: 'https://script.google.com/macros/s/AKfycb.../exec'
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxcHDIZWU4MtmIvBDmy8FlZ9hV0oNJcjHWUVriFKl9FXVZzLfzySh_d3hbbWcHpg32D/exec'; // 
 
 const SERVICES = [
   {id:'sport60', name:'Urutan Sukan', dur:'60 minit', durMinutes:60, price:100, desc:'Urutan deep tissue tertumpu kepada pemulihan otot dan kecederaan sukan.'},
@@ -679,8 +679,21 @@ async function apiCreateBooking(payload){
   if(USE_SHEETS){
     try{
       const body = new URLSearchParams(payload);
-      const res = await fetch(GAS_WEB_APP_URL, { method:'POST', body });
-      return await res.json(); // {ok, id} or {ok:false, error:'conflict'}
+      // no-cors: Apps Script's POST response often can't be read back due to a CORS
+      // quirk on its redirect, even though the write itself succeeds. So we fire the
+      // request, then confirm success by re-fetching the list (a GET, which reads fine).
+      await fetch(GAS_WEB_APP_URL, { method:'POST', mode:'no-cors', body });
+      const list = await apiListBookings();
+      const justBooked = list.find(b =>
+        b.dateISO === payload.dateISO &&
+        Number(b.hour) === Number(payload.hour) &&
+        b.name === payload.name &&
+        b.svcId === payload.svcId
+      );
+      if(justBooked) return {ok:true, id:justBooked.id};
+      // Not found after the write — most likely the server rejected it as a conflict
+      // (someone else took the slot first).
+      return {ok:false, error:'conflict'};
     }catch(e){ console.error('Gagal hantar tempahan ke Sheets:', e); return {ok:false, error:'network'}; }
   }
   // Claude-storage fallback (used while previewing inside Claude, no Sheets configured yet)
@@ -702,8 +715,8 @@ async function apiCancelBooking(id){
   if(USE_SHEETS){
     try{
       const body = new URLSearchParams({action:'cancel', id});
-      const res = await fetch(GAS_WEB_APP_URL, { method:'POST', body });
-      return await res.json();
+      await fetch(GAS_WEB_APP_URL, { method:'POST', mode:'no-cors', body });
+      return {ok:true}; // list will refresh right after this call in the caller
     }catch(e){ return {ok:false}; }
   }
   const list = (await apiListBookings()).filter(b => b.id !== id);
