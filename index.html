@@ -636,7 +636,7 @@ const ADMIN_WHATSAPP = '60134657353'; // TUKAR ke nombor WhatsApp admin (format 
 // TAMPAL URL Google Apps Script Web App anda di sini selepas deploy (lihat panduan yang diberikan).
 // Bila diisi, tempahan akan disimpan terus ke Google Sheet + emel admin automatik.
 // Kalau dibiar kosong, sistem guna storan pratonton Claude sahaja (untuk ujian dalam Claude).
-const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxcHDIZWU4MtmIvBDmy8FlZ9hV0oNJcjHWUVriFKl9FXVZzLfzySh_d3hbbWcHpg32D/exec'; // 
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyhOIIO9ZGHtVQ8ZEmTHzy1NZr107YxyNOWhGkUAmDXBCArpQQRSVBguBa45w-32hzU/exec'; // 
 
 const SERVICES = [
   {id:'sport60', name:'Urutan Sukan', dur:'60 minit', durMinutes:60, price:100, desc:'Urutan deep tissue tertumpu kepada pemulihan otot dan kecederaan sukan.'},
@@ -683,18 +683,13 @@ async function apiCreateBooking(payload){
       const body = new URLSearchParams(payload);
       // no-cors: Apps Script's POST response often can't be read back due to a CORS
       // quirk on its redirect, even though the write itself succeeds. So we fire the
-      // request, then confirm success by re-fetching the list (a GET, which reads fine).
+      // request, then confirm success by re-fetching the list and matching on the
+      // client-generated id we sent — far more reliable than matching on date/name,
+      // since Sheets can silently reformat date-like text cells.
       await fetch(GAS_WEB_APP_URL, { method:'POST', mode:'no-cors', body });
       const list = await apiListBookings();
-      const justBooked = list.find(b =>
-        b.dateISO === payload.dateISO &&
-        Number(b.hour) === Number(payload.hour) &&
-        b.name === payload.name &&
-        b.svcId === payload.svcId
-      );
+      const justBooked = list.find(b => b.id === payload.id);
       if(justBooked) return {ok:true, id:justBooked.id};
-      // Not found after the write — most likely the server rejected it as a conflict
-      // (someone else took the slot first).
       return {ok:false, error:'conflict'};
     }catch(e){ console.error('Gagal hantar tempahan ke Sheets:', e); return {ok:false, error:'network'}; }
   }
@@ -707,7 +702,7 @@ async function apiCreateBooking(payload){
     return payload.hour < b.hour + bDurHours && b.hour < payload.hour + durHours;
   });
   if(conflict) return {ok:false, error:'conflict'};
-  const booking = {...payload, id:'bk_'+Date.now(), createdAt:new Date().toISOString()};
+  const booking = {...payload, createdAt:new Date().toISOString()};
   list.push(booking);
   if(STORAGE_OK){ try{ await window.storage.set('ub-bookings', JSON.stringify(list), true); }catch(e){} }
   return {ok:true, id:booking.id};
@@ -927,7 +922,9 @@ document.getElementById('confirmBtn').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Menghantar...';
 
+  const clientId = 'bk_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
   const result = await apiCreateBooking({
+    id: clientId,
     svcId: svc.id, svcName: svc.name, durMinutes: svc.durMinutes, price: svc.price,
     dateISO: iso, hour: state.hour, name, phone
   });
